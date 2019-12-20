@@ -5,7 +5,10 @@ from datetime import date, timedelta
 
 from duka.app import app
 from duka.core import valid_date, set_up_signals
-from duka.core.utils import valid_timeframe, TimeFrame
+from duka.core.utils import (
+    valid_timeframe, TimeFrame,
+    valid_destination, Destination
+)
 
 VERSION = '0.2.1'
 
@@ -26,7 +29,14 @@ def main():
                         help='use candles instead of ticks. Accepted values M1 M2 M5 M10 M15 M30 H1 H4',
                         default=TimeFrame.TICK)
     parser.add_argument('--header', action='store_true', help='include CSV header (default false)', default=False)
+    parser.add_argument('--dest', type=valid_destination,
+                        help='Destination for the data, either DB or CSV',
+                        default=Destination.CSV)
+
     args = parser.parse_args()
+    if args.donothing:
+        print('do nothing yeah')
+        return
 
     if args.startdate is not None:
         start = args.startdate

@@ -25,6 +25,11 @@ class TimeFrame(object):
     D1 = 86400
 
 
+class Destination(object):
+    CSV = 'CSV'
+    DB = 'DB'
+
+
 def valid_date(s):
     try:
         return datetime.strptime(s, "%Y-%m-%d").date()
@@ -38,6 +43,14 @@ def valid_timeframe(s):
         return getattr(TimeFrame, s.upper())
     except AttributeError:
         msg = "Not a valid time frame: '{0}'.".format(s)
+        raise argparse.ArgumentTypeError(msg)
+
+
+def valid_destination(s):
+    try:
+        return getattr(Destination, s.upper())
+    except AttributeError:
+        msg = "Not a valid destination: '{0}'.".format(s)
         raise argparse.ArgumentTypeError(msg)
 
 

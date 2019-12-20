@@ -1,3 +1,4 @@
+from typing import List
 import concurrent
 import threading
 import time
@@ -5,14 +6,16 @@ from collections import deque
 from datetime import timedelta, date
 
 from ..core import decompress, fetch_day, Logger
-from ..core.csv_dumper import CSVDumper
-from ..core.utils import is_debug_mode, TimeFrame
+from ..core.csv_dumper import CSVDumper, DBWriter
+from ..core.utils import is_debug_mode, TimeFrame, Destination
 
 SATURDAY = 5
 day_counter = 0
 
+MAP_WRITER = {Destination.CSV: CSVDumper, Destination.DB: DBWriter}
 
-def days(start, end):
+
+def days(start: date, end: date):
     if start > end:
         return
     end = end + timedelta(days=1)
@@ -67,7 +70,16 @@ def name(symbol, timeframe, start, end):
     return name + ext
 
 
-def app(symbols, start, end, threads, timeframe, folder, header):
+def app(
+        symbols: List[str],
+        start: date,
+        end: date,
+        threads: int,
+        timeframe: TimeFrame,
+        folder: str,
+        header: bool,
+        destination: Destination,
+):
     if start > end:
         return
     lock = threading.Lock()
@@ -80,7 +92,11 @@ def app(symbols, start, end, threads, timeframe, folder, header):
     last_fetch = deque([], maxlen=5)
     update_progress(day_counter, total_days, -1, threads)
 
-    def do_work(symbol, day, csv):
+    def do_work(
+            symbol: str,
+            day,
+            csv
+    ):
         global day_counter
         star_time = time.time()
         Logger.info("Fetching day {0}".format(day))

@@ -1,6 +1,8 @@
+from typing import Optional
 import csv
 import time
 from os.path import join
+from datetime import date
 
 from .candle import Candle
 from .utils import TimeFrame, stringify, Logger
@@ -92,5 +94,39 @@ class CSVDumper:
                         write_tick(writer, value)
                     else:
                         write_candle(writer, value)
+
+        Logger.info("{0} completed".format(file_name))
+
+
+class DBWriter(CSVDumper):
+    """Writes data into the database directly
+
+    Paramters
+    ---------
+    symbol: str
+        The symbol
+    start: date
+        Start date
+    end: date
+        End date
+    """
+    def __init__(
+            self,
+            symbol: str,
+            start: date,
+            end: date,
+    ):
+        super(DBWriter, self).__init__(
+            symbol, TimeFrame.TICK, start, end, 'unused', header=False,
+        )
+
+    def dump(self):
+        raise NotImplementedError("todo")
+
+        Logger.info("Writing {0}".format(file_name))
+
+        for day in sorted(self.buffer.keys()):
+            for value in self.buffer[day]:
+                    write_tick(writer, value)
 
         Logger.info("{0} completed".format(file_name))
