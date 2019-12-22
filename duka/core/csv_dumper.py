@@ -3,11 +3,14 @@ import csv
 import time
 from os.path import join
 from datetime import date
+import psycopg2
+import json
 
 from .candle import Candle
 from .utils import TimeFrame, stringify, Logger
 
 TEMPLATE_FILE_NAME = "{}-{}_{:02d}_{:02d}-{}_{:02d}_{:02d}.csv"
+DB_INSERTION_TITLE = "{}-{}_{:02d}_{:02d}-{}_{:02d}_{:02d}"
 
 
 def format_float(number):
@@ -55,15 +58,18 @@ class CSVDumper:
             return ['time', 'ask', 'bid', 'ask_volume', 'bid_volume']
         return ['time', 'open', 'close', 'high', 'low']
 
+    def unpack(self, tick):
+        return [tick[k] for k in self.get_header()]
+
     def append(self, day, ticks):
         previous_key = None
         current_ticks = []
         self.buffer[day] = []
         for tick in ticks:
             if self.timeframe == TimeFrame.TICK:
-                self.buffer[day].append(tick)
+                self.buffer[day].append(self.unpack(tick))
             else:
-                ts = time.mktime(tick[0].timetuple())
+                ts = time.mktime(tick['time'].timetuple())
                 key = int(ts - (ts % self.timeframe))
                 if previous_key != key and previous_key is not None:
                     n = int((key - previous_key) / self.timeframe)
@@ -110,23 +116,61 @@ class DBWriter(CSVDumper):
     end: date
         End date
     """
+
+    table = 'fx_tick_data_dukascopy'
+    col_names = 'utc_timestamp, ticker, ask, bid, ask_volume, bid_volume'
+
     def __init__(
             self,
             symbol: str,
             start: date,
             end: date,
+            connection: Optional[psycopg2.extensions.connection] = None,
+            cursor: Optional[psycopg2._psycopg.cursor] = None,
     ):
         super(DBWriter, self).__init__(
             symbol, TimeFrame.TICK, start, end, 'unused', header=False,
         )
+        self.connection = connection
+        self.cursor = cursor
+
+    def unpack(self, tick):
+        return tick
 
     def dump(self):
-        raise NotImplementedError("todo")
+        title = DB_INSERTION_TITLE.format(self.symbol,
+                                          self.start.year, self.start.month,
+                                          self.start.day,
+                                          self.end.year, self.end.month,
+                                          self.end.day)
 
-        Logger.info("Writing {0}".format(file_name))
+        Logger.info("Writing {0}".format(title))
 
+        data = []
         for day in sorted(self.buffer.keys()):
-            for value in self.buffer[day]:
-                    write_tick(writer, value)
+            for row in self.buffer[day]:
+                data.append(
+                    dict(
+                        utc_timestamp=self.format_time(row[0]),
+                        ticker=self.symbol,
+                        ask=row[1],
+                        bid=row[2],
+                        ask_volume=row[3],
+                        bid_volume=row[4],
+                    )
+                )
 
-        Logger.info("{0} completed".format(file_name))
+        query = (
+            f"INSERT INTO {self.table} ({self.col_names})\n"
+            "SELECT\n"
+            f"    {self.col_names}\n"
+            f"FROM json_populate_recordset(null::{self.table}, %s);"
+        )
+
+        self.cursor.execute(query, (json.dumps(data),))
+        self.connection.commit()
+        print("{0} completed".format(title))
+        Logger.info("{0} completed".format(title))
+
+    def format_time(self, time):
+        return time.isoformat(sep=' ', timespec='milliseconds')

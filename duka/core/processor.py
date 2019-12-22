@@ -1,3 +1,4 @@
+from typing import Dict, Any
 import struct
 from datetime import timedelta, datetime
 from lzma import LZMADecompressor, LZMAError, FORMAT_AUTO
@@ -69,7 +70,11 @@ def normalize(symbol, day, ticks):
     return add_hour(list(map(lambda x: norm(*x), ticks)))
 
 
-def decompress(symbol, day, compressed_buffer):
+def decompress(
+        symbol: str,
+        day: datetime.date,
+        compressed_buffer: "np.ndarray",
+):
     if compressed_buffer.nbytes == 0:
         return compressed_buffer
     return normalize(symbol, day, tokenize(decompress_lzma(compressed_buffer)))

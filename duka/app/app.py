@@ -1,9 +1,10 @@
-from typing import List
+from typing import List, Optional, Union
 import concurrent
 import threading
 import time
 from collections import deque
 from datetime import timedelta, date
+import psycopg2
 
 from ..core import decompress, fetch_day, Logger
 from ..core.csv_dumper import CSVDumper, DBWriter
@@ -13,7 +14,22 @@ SATURDAY = 5
 day_counter = 0
 
 MAP_WRITER = {Destination.CSV: CSVDumper, Destination.DB: DBWriter}
-
+def build_writer(
+        destination: Destination,
+        symbol: str,
+        timeframe: TimeFrame,
+        start: date,
+        end: date,
+        folder: Optional[str] = None,
+        include_header: Optional[bool] = None,
+        connection: Optional[psycopg2.extensions.connection] = None,
+        cursor: Optional[psycopg2._psycopg.cursor] = None,
+) -> Union[CSVDumper, DBWriter]:
+    if destination == Destination.CSV:
+        return CSVDumper(symbol, timeframe, start, end, folder, include_header)
+    else:
+        return DBWriter(symbol, start, end, connection, cursor)
+    
 
 def days(start: date, end: date):
     if start > end:
@@ -76,9 +92,11 @@ def app(
         end: date,
         threads: int,
         timeframe: TimeFrame,
-        folder: str,
-        header: bool,
         destination: Destination,
+        folder: Optional[str] = None,
+        header: Optional[bool] = None,
+        connection: Optional[psycopg2.extensions.connection] = None,
+        cursor: Optional[psycopg2._psycopg.cursor] = None,
 ):
     if start > end:
         return
@@ -114,11 +132,17 @@ def app(
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
 
-        files = {symbol: CSVDumper(symbol, timeframe, start, end, folder, header) for symbol in symbols}
+        writers = {
+            symbol: build_writer(
+                destination, symbol, timeframe, start, end, folder, header,
+                connection, cursor,
+            )
+            for symbol in symbols
+        }
 
         for symbol in symbols:
             for day in days(start, end):
-                futures.append(executor.submit(do_work, symbol, day, files[symbol]))
+                futures.append(executor.submit(do_work, symbol, day, writers[symbol]))
 
         for future in concurrent.futures.as_completed(futures):
             if future.exception() is None:
@@ -127,7 +151,7 @@ def app(
                 Logger.error("An error happen when fetching data : ", future.exception())
 
         Logger.info("Fetching data terminated")
-        for file in files.values():
-            file.dump()
+        for writer in writers.values():
+            writer.dump()
 
     update_progress(day_counter, total_days, avg(last_fetch), threads)
