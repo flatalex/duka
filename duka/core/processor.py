@@ -77,4 +77,7 @@ def decompress(
 ):
     if compressed_buffer.nbytes == 0:
         return compressed_buffer
-    return normalize(symbol, day, tokenize(decompress_lzma(compressed_buffer)))
+    decompressed = decompress_lzma(compressed_buffer)
+    tokenized = tokenize(decompressed)
+    normalized = normalize(symbol, day, tokenized)
+    return normalized

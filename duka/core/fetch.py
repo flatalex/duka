@@ -49,6 +49,7 @@ def create_tasks(symbol, day):
         'currency': symbol,
         'year': day.year,
         'month': day.month - 1,
+        #'month': day.month,
         'day': day.day
     }
     tasks = [asyncio.ensure_future(get(URL.format(**url_info, hour=i))) for i in range(0, 24)]

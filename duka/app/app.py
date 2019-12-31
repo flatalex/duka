@@ -1,19 +1,44 @@
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Dict
 import concurrent
 import threading
 import time
 from collections import deque
-from datetime import timedelta, date
+from datetime import timedelta, date, datetime
 import psycopg2
 
 from ..core import decompress, fetch_day, Logger
-from ..core.csv_dumper import CSVDumper, DBWriter
+from ..core.csv_dumper import CSVDumper, DBWriter, CSVStoreDumper
 from ..core.utils import is_debug_mode, TimeFrame, Destination
 
 SATURDAY = 5
 day_counter = 0
 
 MAP_WRITER = {Destination.CSV: CSVDumper, Destination.DB: DBWriter}
+
+
+class FakeFuture(concurrent.futures.Future):
+
+    def __init__(self, fn, *args, **kwargs):
+        super(FakeFuture, self).__init__()
+        self._state = 'FINISHED'
+        try:
+            self._result = fn(*args, **kwargs)
+        except Exception as e:
+            self._result = e
+
+    def result(self, **kwargs):
+        # if code failed raise exception like real future
+        if isinstance(self._result, Exception):
+            raise self._result
+        return self._result
+
+
+class FakeExecutor(concurrent.futures.ProcessPoolExecutor):
+
+    def submit(self, fn, *args, **kwargs):
+        return FakeFuture(fn, *args, **kwargs)
+
+
 def build_writer(
         destination: Destination,
         symbol: str,
@@ -24,9 +49,13 @@ def build_writer(
         include_header: Optional[bool] = None,
         connection: Optional[psycopg2.extensions.connection] = None,
         cursor: Optional[psycopg2._psycopg.cursor] = None,
+        file: Optional[str] = None,
+        last_timestamp: Optional[datetime] = None,
 ) -> Union[CSVDumper, DBWriter]:
     if destination == Destination.CSV:
         return CSVDumper(symbol, timeframe, start, end, folder, include_header)
+    elif destination == Destination.CSV_STORE:
+        return CSVStoreDumper(symbol, folder, file, last_timestamp)
     else:
         return DBWriter(symbol, start, end, connection, cursor)
     
@@ -97,7 +126,43 @@ def app(
         header: Optional[bool] = None,
         connection: Optional[psycopg2.extensions.connection] = None,
         cursor: Optional[psycopg2._psycopg.cursor] = None,
+        files: Optional[Dict[str, str]] = None,
+        last_timestamps: Optional[Dict[str, datetime]] = None
 ):
+    """Scrap data from Dukascopy
+
+    Parameters
+    ----------
+    symbols: list[str]
+        List of symbols recognized by Dukascopy.
+        FX pairs are in the format CCY1CCY2 (no slash)
+    start: date
+        The inclusive start date for downloading data
+    end: date
+        The inclusive end date for downloading data
+    threads: int
+        Number of threads to be used. It seems that only threads=1 is valid
+    timeframe: TimeFrame
+        Specify whether to dump tick data or candles formed from tick data
+    destination: Destination
+        Specify whether to dump data in new files, in a database, or update
+        existing files instead
+    folder: str (optional)
+        Where to dump or update files. Not needed if destination == DB
+    header: str
+        Only used if Destination == CSV. Specifies whether files should
+        have a header
+    connection: psycopg2.extensions.connection
+        Opened connection to the database
+    cursor: cursor
+        Cursor on the table
+    files: Dict[str, str]
+        Only used if destination == CSV_STORE. These are the files containing
+        the more recent data for each symbol.
+    last_timestamps: Dict[str, datetime]
+        Only used if destination == CSV_STORE.
+        The last timestamp in each of the above files
+    """
     if start > end:
         return
     lock = threading.Lock()
@@ -109,6 +174,11 @@ def app(
 
     last_fetch = deque([], maxlen=5)
     update_progress(day_counter, total_days, -1, threads)
+
+    if files is None:
+        files = {}
+    if last_timestamps is None:
+        last_timestamps = {}
 
     def do_work(
             symbol: str,
@@ -127,15 +197,22 @@ def app(
         with lock:
             day_counter += 1
         Logger.info("Day {0} fetched in {1}s".format(day, elapsed_time))
+        print(f"Day {day} fetched in {elapsed_time}s for {symbol}")
 
     futures = []
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+    if threads == 1:
+        Executor = FakeExecutor
+    else:
+        Executor = concurrent.futures.ThreadPoolExecutor
+
+    with Executor(max_workers=threads) as executor:
 
         writers = {
             symbol: build_writer(
                 destination, symbol, timeframe, start, end, folder, header,
-                connection, cursor,
+                connection, cursor, files.get(symbol, None),
+                last_timestamps.get(symbol, None),
             )
             for symbol in symbols
         }
@@ -150,8 +227,10 @@ def app(
             else:
                 Logger.error("An error happen when fetching data : ", future.exception())
 
+        print("Fetching data terminated")
         Logger.info("Fetching data terminated")
         for writer in writers.values():
             writer.dump()
+            print(f"Writing data for {writer.symbol} terminated")
 
     update_progress(day_counter, total_days, avg(last_fetch), threads)

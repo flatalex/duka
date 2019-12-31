@@ -26,8 +26,9 @@ class TimeFrame(object):
 
 
 class Destination(object):
-    CSV = 'CSV'
-    DB = 'DB'
+    CSV = 'CSV'  # the original duka functionality
+    DB = 'DB'  # write from dukascopy to DB
+    CSV_STORE = 'CSV_STORE'  # write from dukascopy to existing or new CSV files
 
 
 def valid_date(s):
