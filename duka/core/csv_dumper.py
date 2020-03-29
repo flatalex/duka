@@ -166,8 +166,8 @@ class CSVStoreDumper(object):
                     timestamp.strftime(self.DATETIME_FMT)[:-3],
                     f"{ask:.5f}",
                     f"{bid:.5f}",
-                    f"{ask_volume:.1f}",
-                    f"{bid_volume:.1f}",
+                    f"{ask_volume:.3f}",
+                    f"{bid_volume:.3f}",
                 ]
             )
             file.write(f"{line}\n")
@@ -214,9 +214,14 @@ class DBWriter(CSVDumper):
         Start date
     end: date
         End date
+    connection: psycopg2.extensions.connection
+        Opened connection to the database
+    cursor: cursor
+        Cursor on the opened connection
+    table: str
+        The destination table
     """
 
-    table = 'fx_tick_data_dukascopy'
     col_names = 'utc_timestamp, ticker, ask, bid, ask_volume, bid_volume'
 
     def __init__(
@@ -224,14 +229,16 @@ class DBWriter(CSVDumper):
             symbol: str,
             start: date,
             end: date,
-            connection: Optional[psycopg2.extensions.connection] = None,
-            cursor: Optional[psycopg2._psycopg.cursor] = None,
+            connection: psycopg2.extensions.connection,
+            cursor: psycopg2._psycopg.cursor,
+            table: str,
     ):
         super(DBWriter, self).__init__(
             symbol, TimeFrame.TICK, start, end, 'unused', header=False,
         )
         self.connection = connection
         self.cursor = cursor
+        self.table = table
 
     def unpack(self, tick):
         return tick
@@ -254,8 +261,8 @@ class DBWriter(CSVDumper):
                         ticker=self.symbol,
                         ask=row[1],
                         bid=row[2],
-                        ask_volume=row[3],
-                        bid_volume=row[4],
+                        ask_volume=1e-6 * row[3],
+                        bid_volume=1e-6 * row[4],
                     )
                 )
 
@@ -263,7 +270,8 @@ class DBWriter(CSVDumper):
             f"INSERT INTO {self.table} ({self.col_names})\n"
             "SELECT\n"
             f"    {self.col_names}\n"
-            f"FROM json_populate_recordset(null::{self.table}, %s);"
+            f"FROM json_populate_recordset(null::{self.table}, %s)\n"
+            "ON CONFLICT DO NOTHING;"
         )
 
         self.cursor.execute(query, (json.dumps(data),))

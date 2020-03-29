@@ -49,6 +49,7 @@ def build_writer(
         include_header: Optional[bool] = None,
         connection: Optional[psycopg2.extensions.connection] = None,
         cursor: Optional[psycopg2._psycopg.cursor] = None,
+        table: Optional[str] = None,
         file: Optional[str] = None,
         last_timestamp: Optional[datetime] = None,
 ) -> Union[CSVDumper, DBWriter]:
@@ -57,7 +58,7 @@ def build_writer(
     elif destination == Destination.CSV_STORE:
         return CSVStoreDumper(symbol, folder, file, last_timestamp)
     else:
-        return DBWriter(symbol, start, end, connection, cursor)
+        return DBWriter(symbol, start, end, connection, cursor, table)
     
 
 def days(start: date, end: date):
@@ -126,6 +127,7 @@ def app(
         header: Optional[bool] = None,
         connection: Optional[psycopg2.extensions.connection] = None,
         cursor: Optional[psycopg2._psycopg.cursor] = None,
+        table: Optional[str] = None,
         files: Optional[Dict[str, str]] = None,
         last_timestamps: Optional[Dict[str, datetime]] = None
 ):
@@ -153,9 +155,14 @@ def app(
         Only used if Destination == CSV. Specifies whether files should
         have a header
     connection: psycopg2.extensions.connection
+        Only used if destination == DB.
         Opened connection to the database
     cursor: cursor
-        Cursor on the table
+        Only used if destination == DB.
+        Cursor on the opened connection
+    table: str (optional, default=None)
+        Only used if destination == DB.
+        The destination table in the database
     files: Dict[str, str]
         Only used if destination == CSV_STORE. These are the files containing
         the more recent data for each symbol.
@@ -183,13 +190,13 @@ def app(
     def do_work(
             symbol: str,
             day,
-            csv
+            writer
     ):
         global day_counter
         star_time = time.time()
         Logger.info("Fetching day {0}".format(day))
         try:
-            csv.append(day, decompress(symbol, day, fetch_day(symbol, day)))
+            writer.append(day, decompress(symbol, day, fetch_day(symbol, day)))
         except Exception as e:
             print("ERROR for {0}, {1} Exception : {2}".format(day, symbol, str(e)))
         elapsed_time = time.time() - star_time
@@ -211,7 +218,7 @@ def app(
         writers = {
             symbol: build_writer(
                 destination, symbol, timeframe, start, end, folder, header,
-                connection, cursor, files.get(symbol, None),
+                connection, cursor, table, files.get(symbol, None),
                 last_timestamps.get(symbol, None),
             )
             for symbol in symbols
