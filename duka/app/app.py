@@ -49,7 +49,7 @@ def build_writer(
         include_header: Optional[bool] = None,
         connection: Optional[psycopg2.extensions.connection] = None,
         cursor: Optional[psycopg2._psycopg.cursor] = None,
-        table: Optional[str] = None,
+        table_template: Optional[str] = None,
         file: Optional[str] = None,
         last_timestamp: Optional[datetime] = None,
 ) -> Union[CSVDumper, DBWriter]:
@@ -58,7 +58,7 @@ def build_writer(
     elif destination == Destination.CSV_STORE:
         return CSVStoreDumper(symbol, folder, file, last_timestamp)
     else:
-        return DBWriter(symbol, start, end, connection, cursor, table)
+        return DBWriter(symbol, start, end, connection, cursor, table_template)
     
 
 def days(start: date, end: date):
@@ -127,7 +127,7 @@ def app(
         header: Optional[bool] = None,
         connection: Optional[psycopg2.extensions.connection] = None,
         cursor: Optional[psycopg2._psycopg.cursor] = None,
-        table: Optional[str] = None,
+        table_template: Optional[str] = None,
         files: Optional[Dict[str, str]] = None,
         last_timestamps: Optional[Dict[str, datetime]] = None
 ):
@@ -160,9 +160,9 @@ def app(
     cursor: cursor
         Only used if destination == DB.
         Cursor on the opened connection
-    table: str (optional, default=None)
+    table_template: str (optional, default=None)
         Only used if destination == DB.
-        The destination table in the database
+        The template to be used to form the table name
     files: Dict[str, str]
         Only used if destination == CSV_STORE. These are the files containing
         the more recent data for each symbol.
@@ -218,7 +218,7 @@ def app(
         writers = {
             symbol: build_writer(
                 destination, symbol, timeframe, start, end, folder, header,
-                connection, cursor, table, files.get(symbol, None),
+                connection, cursor, table_template, files.get(symbol, None),
                 last_timestamps.get(symbol, None),
             )
             for symbol in symbols
